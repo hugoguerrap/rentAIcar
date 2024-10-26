@@ -2,9 +2,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from datetime import datetime, timedelta
-
 from src.database.models import ResponseTemplate, Interaction
-
 
 class ResponseOptimizer:
     def __init__(self, session):
@@ -70,7 +68,6 @@ class ResponseOptimizer:
 
     def calculate_context_similarity(self, context1: dict, context2: dict):
         """Calcula la similitud entre dos contextos"""
-        # Implementar lógica específica para RentaCar
         similarity_score = 0
         total_weights = 0
 
@@ -93,3 +90,23 @@ class ResponseOptimizer:
         total_weights += 0.3
 
         return similarity_score / total_weights if total_weights > 0 else 0
+
+    def compare_price_ranges(self, price_range1, price_range2):
+        """Compara dos rangos de precios y devuelve una puntuación de similitud"""
+        # Verificar que ambos rangos de precios sean tuplas o listas con dos elementos
+        if not (isinstance(price_range1, (list, tuple)) and len(price_range1) == 2):
+            return 0
+        if not (isinstance(price_range2, (list, tuple)) and len(price_range2) == 2):
+            return 0
+
+        min1, max1 = price_range1
+        min2, max2 = price_range2
+
+        overlap = max(0, min(max1, max2) - max(min1, min2))
+        range1 = max1 - min1
+        range2 = max2 - min2
+
+        if range1 == 0 or range2 == 0:
+            return 0
+
+        return overlap / min(range1, range2)

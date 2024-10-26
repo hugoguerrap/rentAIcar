@@ -1,12 +1,13 @@
+from enum import Enum
 from typing import Dict, Any
 from datetime import datetime
+
+from langchain_community.chat_models import ChatOpenAI
 from sqlalchemy.orm import Session
-from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 
 from src.context.context_builder import ContextBuilder
 from src.database.models import Interaction
-
 
 class RentaCarAgent:
     def __init__(self, session: Session, response_optimizer):
@@ -15,7 +16,7 @@ class RentaCarAgent:
         self.context_builder = ContextBuilder()
         self.llm = ChatOpenAI(temperature=0.7)
 
-    async def process_query(self, query: str, additional_context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def process_query(self, query: str, additional_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Procesa una consulta y genera una respuesta contextualizada
         """
@@ -31,18 +32,18 @@ class RentaCarAgent:
 
             # Si no hay plantilla, crear una respuesta nueva
             if not template:
-                response = await self._generate_new_response(query, category, context)
+                response = self._generate_new_response(query, category, context)
             else:
-                response = await self._apply_template(template, context)
+                response = self._apply_template(template, context)
 
             # Registrar la interacción
-            interaction = await self._record_interaction(query, response, category, context, template)
+            interaction = self._record_interaction(query, response, category, context, template)
 
             return {
                 'response': response,
                 'interaction_id': interaction.id,
                 'category': category,
-                'context': context
+                'context': self._serialize_context(context)
             }
 
         except Exception as e:
@@ -53,7 +54,7 @@ class RentaCarAgent:
                 'error': str(e)
             }
 
-    async def _generate_new_response(self, query: str, category: str, context: Dict[str, Any]) -> str:
+    def _generate_new_response(self, query: str, category: str, context: Dict[str, Any]) -> str:
         """
         Genera una nueva respuesta cuando no hay plantilla disponible
         """
@@ -100,14 +101,14 @@ class RentaCarAgent:
         prompt = ChatPromptTemplate.from_template(prompt_template)
 
         # Generar la respuesta
-        response = await self.llm.agenerate([prompt.format_messages(
+        response = self.llm.generate([prompt.format_messages(
             query=query,
             context=str(context)
         )])
 
         return response.generations[0][0].text
 
-    async def _apply_template(self, template: str, context: Dict[str, Any]) -> str:
+    def _apply_template(self, template: str, context: Dict[str, Any]) -> str:
         """
         Aplica una plantilla existente con el contexto actual
         """
@@ -117,41 +118,57 @@ class RentaCarAgent:
             return response
         except KeyError:
             # Si hay error con la plantilla, generar respuesta nueva
-            return await self._generate_new_response(
+            return self._generate_new_response(
                 query="",  # Query vacío porque estamos usando el contexto
                 category=template.category.name,
                 context=context
             )
 
-    async def _record_interaction(self, query: str, response: str,
-                                  category: str, context: Dict[str, Any],
-                                  template: Any = None) -> Any:
+    def _serialize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convierte los objetos datetime y Enum dentro del contexto a cadenas.
+        """
+        serialized_context = {}
+        for key, value in context.items():
+            if isinstance(value, datetime):
+                serialized_context[key] = value.isoformat()
+            elif isinstance(value, Enum):
+                serialized_context[key] = value.name
+            else:
+                serialized_context[key] = value
+        return serialized_context
+
+    def _record_interaction(self, query: str, response: str,
+                            category: str, context: Dict[str, Any],
+                            template: Any = None) -> Any:
         """
         Registra la interacción en la base de datos
         """
+        serialized_context = self._serialize_context(context)
+
         interaction = Interaction(
             query=query,
             response=response,
             category_id=category,
             template_id=template.id if template else None,
-            context=context,
-            timestamp=datetime.utcnow()
+            context=serialized_context,
+            timestamp=datetime.utcnow()  # Mantener como datetime
         )
 
         self.session.add(interaction)
-        await self.session.flush()
-        await self.session.commit()
+        self.session.flush()
+        self.session.commit()
 
         return interaction
 
-    async def process_feedback(self, interaction_id: int,
-                               feedback_score: float,
-                               comments: str = None) -> bool:
+    def process_feedback(self, interaction_id: int,
+                         feedback_score: float,
+                         comments: str = None) -> bool:
         """
         Procesa el feedback de una interacción
         """
         try:
-            interaction = await self.session.get(Interaction, interaction_id)
+            interaction = self.session.get(Interaction, interaction_id)
             if not interaction:
                 return False
 
@@ -161,7 +178,7 @@ class RentaCarAgent:
 
             # Actualizar métricas de la plantilla si existe
             if interaction.template_id:
-                await self.optimizer.update_template_metrics(
+                self.optimizer.update_template_metrics(
                     interaction.template_id,
                     feedback_score
                 )
@@ -170,7 +187,7 @@ class RentaCarAgent:
             success_indicators = self._analyze_success_indicators(interaction)
             interaction.success_indicators = success_indicators
 
-            await self.session.commit()
+            self.session.commit()
             return True
 
         except Exception as e:
@@ -219,3 +236,21 @@ class RentaCarAgent:
             return 'medium'
         else:
             return 'complex'
+
+    def categorize_query(self, query: str) -> str:
+        """
+        Categorizes the query into predefined categories.
+        """
+        query = query.lower()
+        if any(keyword in query for keyword in ['precio', 'tarifa', 'costo']):
+            return 'pricing'
+        elif any(keyword in query for keyword in ['reservar', 'reserva', 'booking']):
+            return 'booking'
+        elif any(keyword in query for keyword in ['vehículo', 'coche', 'auto']):
+            return 'vehicle_info'
+        elif any(keyword in query for keyword in ['daño', 'accidente', 'reparación']):
+            return 'damage'
+        elif any(keyword in query for keyword in ['reclamo', 'queja', 'problema']):
+            return 'claims'
+        else:
+            return 'general'

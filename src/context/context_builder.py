@@ -50,9 +50,6 @@ class ContextBuilder:
         }
 
     def build_context(self, query: str, additional_context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Construye el contexto completo para una consulta de RentaCar
-        """
         context = {
             'timestamp': datetime.now(),
             'vehicle_type': self._detect_vehicle_type(query),
@@ -65,11 +62,11 @@ class ContextBuilder:
             'special_requirements': self._extract_special_requirements(query)
         }
 
-        # Incorporar contexto adicional si existe
         if additional_context:
             context.update(additional_context)
 
         return context
+
 
     def _detect_vehicle_type(self, query: str) -> VehicleType:
         """

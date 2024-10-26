@@ -27,7 +27,7 @@ async def main():
         agent = RentaCarAgent(session, optimizer)
 
         # Procesar una consulta
-        result = await agent.process_query(
+        result = agent.process_query(
             "¿Cuánto cuesta alquilar un SUV para el fin de semana?",
             additional_context={
                 'season': 'high_season',
@@ -40,7 +40,7 @@ async def main():
 
         # Simular feedback del cliente
         if 'interaction_id' in result:
-            feedback_result = await agent.process_feedback(
+            feedback_result = agent.process_feedback(
                 interaction_id=result['interaction_id'],
                 feedback_score=4.5,
                 comments="Respuesta clara y precisa"
